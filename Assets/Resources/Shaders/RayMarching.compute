@@ -12,10 +12,19 @@ float4x4 _CameraInverseProjection;
 static const float maxDst = 80;
 static const float epsilon = 0.001f;
 
-float3 _boxPosition;
-float3 _boxHalfSize;
-float3 _boxMin;
-float3 _boxMax;
+struct Shape {
+    
+    float3 position;
+    float3 size;
+    float3 color;
+    float3 colliderMin;
+    float3 colliderMax;
+    int shapeType;
+    float sigmaA;
+};
+
+StructuredBuffer<Shape> shapes;
+int numShapes;
 
 struct Ray {
     float3 origin;
@@ -38,13 +47,42 @@ Ray CreateCameraRay(float2 uv) {
     return CreateRay(origin,direction);
 }
 
+bool RaySphereIntersection(float3 rayOrigin, float3 rayDir, float3 sphereCenter, float sphereRadius, out float tEnter, out float tExit)
+{
+    float3 oc = rayOrigin - sphereCenter;
+
+    float a = dot(rayDir, rayDir); // usually 1 if rayDir is normalized
+    float b = 2.0 * dot(oc, rayDir);
+    float c = dot(oc, oc) - sphereRadius * sphereRadius;
+
+    float discriminant = b * b - 4.0 * a * c;
+
+    if (discriminant < 0.0)
+    {
+        tEnter = 0.0;
+        tExit = 0.0;
+        return false; // no intersection
+    }
+
+    float sqrtDisc = sqrt(discriminant);
+    float invDenom = 0.5 / a;
+
+    float t0 = (-b - sqrtDisc) * invDenom;
+    float t1 = (-b + sqrtDisc) * invDenom;
+
+    tEnter = min(t0, t1);
+    tExit = max(t0, t1);
+
+    return tExit >= max(tEnter, 0.0);
+}
+
 
 bool RayBoxIntersection(float3 rayOrigin, float3 rayDir, out float tEnter, out float tExit)
 {
     float3 invDir = 1.0 / rayDir;
 
-    float3 t0s = (_boxMin - rayOrigin) * invDir;
-    float3 t1s = (_boxMax - rayOrigin) * invDir;
+    float3 t0s = (shapes[0].colliderMin - rayOrigin) * invDir;
+    float3 t1s = (shapes[0].colliderMax - rayOrigin) * invDir;
 
     float3 tSmalls = min(t0s, t1s);
     float3 tBigs = max(t0s, t1s);
@@ -55,16 +93,46 @@ bool RayBoxIntersection(float3 rayOrigin, float3 rayDir, out float tEnter, out f
     return tExit >= max(tEnter, 0.0);
 }
 
-float sdBox(float3 rayPos, float3 boxPos, float3 boxHalfSize)
+bool RayShapeIntersection(Shape shape, float3 rayOrigin, float3 rayDir, out float tEnter, out float tExit) 
 {
-    float3 p = rayPos - boxPos;
-    float3 q = abs(p) - boxHalfSize;
+    if(shape.shapeType == 0) 
+    {
+        return RaySphereIntersection(rayOrigin, rayDir, shape.position, shape.size, tEnter, tExit);
+    }
+    if(shape.shapeType == 1) 
+    {
+        return RayBoxIntersection(rayOrigin, rayDir, tEnter, tExit);    
+    }
+    return false;
+}
+
+float sdBox(float3 p, float3 b)
+{
+    float3 q = abs(p) - b;
     return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+}
+
+float sdSphere(float3 rayPos, float s )
+{
+    return length(rayPos) - s;
+}
+
+float getShapeDistance(float3 eye, Shape shape) 
+{
+    if(shape.shapeType == 0) 
+    {
+        return sdSphere(eye - shape.position, shape.size);    
+    }
+    if(shape.shapeType == 1) 
+    {
+        return sdBox(eye - shape.position ,shape.size);    
+    }
+    return maxDst;
 }
 
 
 float SceneInfo(float3 eye) {
-    float globalDst = sdBox(eye, _boxPosition ,_boxHalfSize);
+    float globalDst = getShapeDistance(eye, shapes[0]);
     if (globalDst > maxDst)
     {
         return maxDst;
@@ -97,7 +165,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
         if (dst <= epsilon)
         {
             float tEnter, tExit = 0;
-            if (RayBoxIntersection(ray.origin, ray.direction, tEnter, tExit))
+            if (RayShapeIntersection(shapes[0],  ray.origin, ray.direction, tEnter, tExit))
             {
                 // Save the original ray origin
                 float3 originalOrigin = ray.origin;
@@ -123,19 +191,22 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                     
                     // Sample your volume data at this position
                     // This is where you'll evaluate your density function, color transfer, etc.
-                    float density = 0.13; // You'll need to implement this function
+                    float density = shapes[0].sigmaA; // You'll need to implement this function
                     
                     if (density > 0.01) // Adjust threshold as needed
                     {
                         // Simple color mapping based on position
-                        float3 sampleColor = float3(
+
+                        float3 sampleColor = shapes[0].color;
+
+                        /*float3 sampleColor = float3(
                             (pos.x - _boxMin.x) / (_boxMax.x - _boxMin.x),
                             (pos.y - _boxMin.y) / (_boxMax.y - _boxMin.y),
                             (pos.z - _boxMin.z) / (_boxMax.z - _boxMin.z)
                         );
-                        
+                        */
                         // Accumulate color (basic front-to-back compositing)
-                        float a = density * stepSize * 5.0; // Adjust density scale as needed
+                        float a = density * stepSize * 1.0; // Adjust density scale as needed
                         color = color + (1.0 - alpha) * a * sampleColor;
                         alpha = alpha + (1.0 - alpha) * a;
                         

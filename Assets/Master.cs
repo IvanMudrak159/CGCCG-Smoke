@@ -1,14 +1,18 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 [ExecuteInEditMode, ImageEffectAllowedInSceneView]
 public class Master : MonoBehaviour
 {
-    [SerializeField] private BoxCollider boxCollider;
+    [SerializeField] private Shape shape;
     private RenderTexture target;
     private Camera cam;
     private int kernelIndex;
     private ComputeShader raymarching;
 
+    private List<ComputeBuffer> buffersToDispose;
+
+    
     private void Awake()
     {
         raymarching = (ComputeShader)Resources.Load("Shaders/Raymarching");
@@ -22,11 +26,35 @@ public class Master : MonoBehaviour
         }
     }
 
-    void SetParameters () {
-        raymarching.SetVector("_boxPosition", boxCollider.transform.position);
-        raymarching.SetVector("_boxHalfSize", boxCollider.size * 0.5f);
-        raymarching.SetVector("_boxMin", boxCollider.bounds.min);
-        raymarching.SetVector("_boxMax", boxCollider.bounds.max);
+    void SetParameters ()
+    {
+        Vector3 col = new Vector3 (shape.Color.r, shape.Color.g, shape.Color.b);
+        ShapeData[] shapeDatas = new ShapeData[1];
+        ShapeData shapeData = new ShapeData()
+        {
+            position = shape.Position,
+            size = shape.Collider.bounds.size * 0.5f,
+            color = col,
+            colliderMin = shape.Collider.bounds.min,
+            colliderMax = shape.Collider.bounds.max,
+            shapeType = (int) shape.Type,
+            sigmaA = shape.SigmaA,
+        };
+        shapeDatas[0] = shapeData;
+        
+        
+        ComputeBuffer shapeBuffer = new ComputeBuffer (1, ShapeData.GetSize ());
+        shapeBuffer.SetData (shapeDatas);
+        raymarching.SetInt ("numShapes", 1);
+        raymarching.SetBuffer (kernelIndex, "shapes", shapeBuffer);
+
+        /*
+        raymarching.SetVector("_boxPosition", shape.Position);
+        raymarching.SetVector("_boxHalfSize", shape.Collider.bounds.size * 0.5f);
+        raymarching.SetVector("_boxMin", shape.Collider.bounds.min);
+        raymarching.SetVector("_boxMax", shape.Collider.bounds.max);
+        */
+        
         raymarching.SetMatrix ("_CameraToWorld", cam.cameraToWorldMatrix);
         raymarching.SetMatrix ("_CameraInverseProjection", cam.projectionMatrix.inverse);
     }
@@ -68,6 +96,21 @@ public class Master : MonoBehaviour
             target = new RenderTexture (cam.pixelWidth, cam.pixelHeight, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
             target.enableRandomWrite = true;
             target.Create ();
+        }
+    }
+
+    struct ShapeData
+    {
+        public Vector3 position;
+        public Vector3 size;
+        public Vector3 color;
+        public Vector3 colliderMin;
+        public Vector3 colliderMax;
+        public int shapeType;
+        public float sigmaA;
+        
+        public static int GetSize () {
+            return sizeof (float) * 16 + sizeof (int);
         }
     }
 }
