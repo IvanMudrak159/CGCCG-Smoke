@@ -23,6 +23,11 @@ struct Shape {
     float sigmaA;
 };
 
+struct ShapeInfo {
+    Shape shape;
+    float distToShape;
+};
+
 StructuredBuffer<Shape> shapes;
 int numShapes;
 
@@ -77,12 +82,12 @@ bool RaySphereIntersection(float3 rayOrigin, float3 rayDir, float3 sphereCenter,
 }
 
 
-bool RayBoxIntersection(float3 rayOrigin, float3 rayDir, out float tEnter, out float tExit)
+bool RayBoxIntersection(Shape shape, float3 rayOrigin, float3 rayDir, out float tEnter, out float tExit)
 {
     float3 invDir = 1.0 / rayDir;
 
-    float3 t0s = (shapes[0].colliderMin - rayOrigin) * invDir;
-    float3 t1s = (shapes[0].colliderMax - rayOrigin) * invDir;
+    float3 t0s = (shape.colliderMin - rayOrigin) * invDir;
+    float3 t1s = (shape.colliderMax - rayOrigin) * invDir;
 
     float3 tSmalls = min(t0s, t1s);
     float3 tBigs = max(t0s, t1s);
@@ -101,7 +106,7 @@ bool RayShapeIntersection(Shape shape, float3 rayOrigin, float3 rayDir, out floa
     }
     if(shape.shapeType == 1) 
     {
-        return RayBoxIntersection(rayOrigin, rayDir, tEnter, tExit);    
+        return RayBoxIntersection(shape, rayOrigin, rayDir, tEnter, tExit);    
     }
     return false;
 }
@@ -131,17 +136,30 @@ float getShapeDistance(float3 eye, Shape shape)
 }
 
 
-float SceneInfo(float3 eye) {
-    float globalDst = getShapeDistance(eye, shapes[0]);
+ShapeInfo SceneInfo(float3 eye) {
+    ShapeInfo info;
+    float globalDst = maxDst;
+    Shape shape;
+    for (int i = 0; i < numShapes; i++) 
+    {
+        float distToShape = getShapeDistance(eye, shapes[i]);
+        if(globalDst > distToShape) 
+        {
+            globalDst = distToShape;
+            shape = shapes[i];
+        }
+    }
     if (globalDst > maxDst)
     {
-        return maxDst;
+        globalDst = maxDst;
     }
     if (globalDst < epsilon)
     {
-        return epsilon;
+        globalDst = epsilon;
     }
-    return globalDst;
+    info.shape = shape;
+    info.distToShape = globalDst;
+    return info;
 }
 
 
@@ -160,12 +178,12 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 
     while (rayDst < maxDst) {
         marchSteps ++;
-        float dst = SceneInfo(ray.origin);
+        ShapeInfo info = SceneInfo(ray.origin);
 
-        if (dst <= epsilon)
+        if (info.distToShape <= epsilon)
         {
             float tEnter, tExit = 0;
-            if (RayShapeIntersection(shapes[0],  ray.origin, ray.direction, tEnter, tExit))
+            if (RayShapeIntersection(info.shape,  ray.origin, ray.direction, tEnter, tExit))
             {
                 // Save the original ray origin
                 float3 originalOrigin = ray.origin;
@@ -191,13 +209,13 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                     
                     // Sample your volume data at this position
                     // This is where you'll evaluate your density function, color transfer, etc.
-                    float density = shapes[0].sigmaA; // You'll need to implement this function
+                    float density = info.shape.sigmaA; // You'll need to implement this function
                     
                     if (density > 0.01) // Adjust threshold as needed
                     {
                         // Simple color mapping based on position
 
-                        float3 sampleColor = shapes[0].color;
+                        float3 sampleColor = info.shape.color;
 
                         /*float3 sampleColor = float3(
                             (pos.x - _boxMin.x) / (_boxMax.x - _boxMin.x),
@@ -222,7 +240,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 return;
             }
         }
-        ray.origin += ray.direction * dst;
-        rayDst += dst;
+        ray.origin += ray.direction * info.distToShape;
+        rayDst += info.distToShape;
     }
 }

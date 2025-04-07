@@ -4,7 +4,7 @@ using UnityEngine;
 [ExecuteInEditMode, ImageEffectAllowedInSceneView]
 public class Master : MonoBehaviour
 {
-    [SerializeField] private Shape shape;
+    [SerializeField] private List<Shape> shapes;
     private RenderTexture target;
     private Camera cam;
     private int kernelIndex;
@@ -28,33 +28,28 @@ public class Master : MonoBehaviour
 
     void SetParameters ()
     {
-        Vector3 col = new Vector3 (shape.Color.r, shape.Color.g, shape.Color.b);
-        ShapeData[] shapeDatas = new ShapeData[1];
-        ShapeData shapeData = new ShapeData()
+        ShapeData[] shapeDatas = new ShapeData[shapes.Count];
+        for (int i = 0; i < shapes.Count; i++)
         {
-            position = shape.Position,
-            size = shape.Collider.bounds.size * 0.5f,
-            color = col,
-            colliderMin = shape.Collider.bounds.min,
-            colliderMax = shape.Collider.bounds.max,
-            shapeType = (int) shape.Type,
-            sigmaA = shape.SigmaA,
-        };
-        shapeDatas[0] = shapeData;
+            Shape shape = shapes[i];
+            Vector3 col = new Vector3 (shape.Color.r, shape.Color.g, shape.Color.b);
+            ShapeData shapeData = new ShapeData()
+            {
+                position = shape.Position,
+                size = shape.Collider.bounds.size * 0.5f,
+                color = col,
+                colliderMin = shape.Collider.bounds.min,
+                colliderMax = shape.Collider.bounds.max,
+                shapeType = (int) shape.Type,
+                sigmaA = shape.SigmaA,
+            };
+            shapeDatas[i] = shapeData;
+        }
         
-        
-        ComputeBuffer shapeBuffer = new ComputeBuffer (1, ShapeData.GetSize ());
+        ComputeBuffer shapeBuffer = new ComputeBuffer (shapeDatas.Length, ShapeData.GetSize ());
         shapeBuffer.SetData (shapeDatas);
-        raymarching.SetInt ("numShapes", 1);
+        raymarching.SetInt ("numShapes", shapeDatas.Length);
         raymarching.SetBuffer (kernelIndex, "shapes", shapeBuffer);
-
-        /*
-        raymarching.SetVector("_boxPosition", shape.Position);
-        raymarching.SetVector("_boxHalfSize", shape.Collider.bounds.size * 0.5f);
-        raymarching.SetVector("_boxMin", shape.Collider.bounds.min);
-        raymarching.SetVector("_boxMax", shape.Collider.bounds.max);
-        */
-        
         raymarching.SetMatrix ("_CameraToWorld", cam.cameraToWorldMatrix);
         raymarching.SetMatrix ("_CameraInverseProjection", cam.projectionMatrix.inverse);
     }
