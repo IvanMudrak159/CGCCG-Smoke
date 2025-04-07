@@ -1,0 +1,157 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> Source;
+RWTexture2D<float4> Result;
+
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+
+static const float maxDst = 80;
+static const float epsilon = 0.001f;
+
+float3 _boxPosition;
+float3 _boxHalfSize;
+float3 _boxMin;
+float3 _boxMax;
+
+struct Ray {
+    float3 origin;
+    float3 direction;
+};
+
+Ray CreateRay(float3 origin, float3 direction) {
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+    return ray;
+}
+
+
+Ray CreateCameraRay(float2 uv) {
+    float3 origin = mul(_CameraToWorld, float4(0,0,0,1)).xyz;
+    float3 direction = mul(_CameraInverseProjection, float4(uv,0,1)).xyz;
+    direction = mul(_CameraToWorld, float4(direction,0)).xyz;
+    direction = normalize(direction);
+    return CreateRay(origin,direction);
+}
+
+
+bool RayBoxIntersection(float3 rayOrigin, float3 rayDir, out float tEnter, out float tExit)
+{
+    float3 invDir = 1.0 / rayDir;
+
+    float3 t0s = (_boxMin - rayOrigin) * invDir;
+    float3 t1s = (_boxMax - rayOrigin) * invDir;
+
+    float3 tSmalls = min(t0s, t1s);
+    float3 tBigs = max(t0s, t1s);
+
+    tEnter = max(max(tSmalls.x, tSmalls.y), tSmalls.z);
+    tExit = min(min(tBigs.x, tBigs.y), tBigs.z);
+
+    return tExit >= max(tEnter, 0.0);
+}
+
+float sdBox(float3 rayPos, float3 boxPos, float3 boxHalfSize)
+{
+    float3 p = rayPos - boxPos;
+    float3 q = abs(p) - boxHalfSize;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+}
+
+
+float SceneInfo(float3 eye) {
+    float globalDst = sdBox(eye, _boxPosition ,_boxHalfSize);
+    if (globalDst > maxDst)
+    {
+        return maxDst;
+    }
+    if (globalDst < epsilon)
+    {
+        return epsilon;
+    }
+    return globalDst;
+}
+
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    Result[id.xy] = Source[id.xy];
+    
+    uint width,height;
+    Result.GetDimensions(width, height);
+    float2 uv = id.xy / float2(width,height) * 2 - 1;
+    float rayDst = 0;
+
+    Ray ray = CreateCameraRay(uv);
+    int marchSteps = 0;
+
+    while (rayDst < maxDst) {
+        marchSteps ++;
+        float dst = SceneInfo(ray.origin);
+
+        if (dst <= epsilon)
+        {
+            float tEnter, tExit = 0;
+            if (RayBoxIntersection(ray.origin, ray.direction, tEnter, tExit))
+            {
+                // Save the original ray origin
+                float3 originalOrigin = ray.origin;
+                
+                // Move ray origin to entry point
+                float3 entryPoint = originalOrigin + ray.direction * tEnter;
+                
+                // Sample positions along the ray inside the box
+                float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
+                float t = 0;
+                float3 color = float3(0, 0, 0);
+                float alpha = 0;
+                
+                // Raymarching loop inside the box
+                for (int i = 0; i < 100; i++) // Adjust max iterations as needed
+                {
+                    t = tEnter + i * stepSize;
+                    
+                    if (t > tExit) break;
+                    
+                    // Current position along the ray
+                    float3 pos = originalOrigin + ray.direction * t;
+                    
+                    // Sample your volume data at this position
+                    // This is where you'll evaluate your density function, color transfer, etc.
+                    float density = 0.13; // You'll need to implement this function
+                    
+                    if (density > 0.01) // Adjust threshold as needed
+                    {
+                        // Simple color mapping based on position
+                        float3 sampleColor = float3(
+                            (pos.x - _boxMin.x) / (_boxMax.x - _boxMin.x),
+                            (pos.y - _boxMin.y) / (_boxMax.y - _boxMin.y),
+                            (pos.z - _boxMin.z) / (_boxMax.z - _boxMin.z)
+                        );
+                        
+                        // Accumulate color (basic front-to-back compositing)
+                        float a = density * stepSize * 5.0; // Adjust density scale as needed
+                        color = color + (1.0 - alpha) * a * sampleColor;
+                        alpha = alpha + (1.0 - alpha) * a;
+                        
+                        // Early ray termination
+                        if (alpha >= 0.95) break;
+                    }
+                }
+                
+                // Output the final color with alpha composited over the background
+                float3 backgroundColor = Source[id.xy].rgb;
+                color = color + (1.0 - alpha) * backgroundColor;
+                Result[id.xy] = float4(color, 1.0);
+                return;
+            }
+        }
+        ray.origin += ray.direction * dst;
+        rayDst += dst;
+    }
+}
