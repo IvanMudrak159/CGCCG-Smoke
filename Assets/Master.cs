@@ -51,8 +51,10 @@ public class Master : MonoBehaviour
                 colliderMin = shape.Collider.bounds.min,
                 colliderMax = shape.Collider.bounds.max,
                 shapeType = (int) shape.Type,
+                phaseType = (int) shape.TypePhase,
                 sigmaA = shape.SigmaA,
                 sigmaS = shape.SigmaS,
+                g = shape.G,
                 useLight = shape.UseLight ? 1 : 0,
                 useForwardRaymarching = shape.UseForwardReymarching ? 1 : 0,
             };
@@ -129,13 +131,15 @@ public class Master : MonoBehaviour
         public Vector3 colliderMin;
         public Vector3 colliderMax;
         public int shapeType;
+        public int phaseType;
         public float sigmaA;
         public float sigmaS;
+        public float g;
         public int useLight;
         public int useForwardRaymarching;
         
         public static int GetSize () {
-            return sizeof (float) * 17 + sizeof (int) * 3;
+            return sizeof (float) * 18 + sizeof (int) * 4;
         }
     }
 }

@@ -26,8 +26,10 @@ struct Shape {
     float3 colliderMin;
     float3 colliderMax;
     int shapeType;
+    int phaseType;
     float sigmaA;
     float sigmaS;
+    float g;
     int useLight;
     int useForwardRaymarching;
 };
@@ -44,6 +46,18 @@ struct Ray {
     float3 origin;
     float3 direction;
 };
+
+float NormalDistribution(float2 rand2)
+{
+    float u1 = max(rand2.x, 1e-6);
+    float u2 = rand2.y;
+
+    float z0 = sqrt(-2.0 * log(u1)) * cos(2.0 * 3.14159265 * u2);
+    float result = saturate((z0 + 3.0) / 6.0);
+
+    return result;
+}
+
 
 Ray CreateRay(float3 origin, float3 direction) {
     Ray ray;
@@ -171,8 +185,43 @@ ShapeInfo SceneInfo(float3 eye) {
     return info;
 }
 
+float IsotropicPhase()
+{
+    return 1.0 / (4.0 * 3.14159265);
+}
+
+float HenyeyGreenstein(float3 viewDir, float3 lightDir, float g)
+{
+    viewDir = normalize(viewDir);
+    lightDir = normalize(lightDir);
+
+    float cosTheta = dot(viewDir, lightDir);
+    float g2 = g * g;
+
+    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
+    denom = max(denom, 1e-4);
+
+    float phase = (1.0 - g2) / (4.0 * 3.14159265 * pow(denom, 1.5));
+    return phase;
+}
+
+float GetPhase(float3 viewDir, float3 lightDir, Shape shape)
+{
+    if (shape.phaseType == 0)
+    {
+        return IsotropicPhase();
+    }
+    if (shape.phaseType == 1)
+    {
+        return HenyeyGreenstein(viewDir, lightDir, shape.g);
+    }
+    return 1;
+}
+
+
 float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
 {
+    int d = 2;
     float t = 0;
     float3 color = float3(0, 0, 0);
     float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
@@ -180,7 +229,8 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
 
     for (int i = 0; i < 100; i++) // Adjust max iterations as needed
     {
-        t = tExit - i * stepSize;
+        float rand = NormalDistribution(float2(0,1));
+        t = tExit - (i + rand) * stepSize;
                     
         if (t < tEnter) break;
                     
@@ -191,8 +241,9 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
         {
             float3 lightDirection = normalize(_Light - pos);
             float tLavaEnter, tLavaExit = 0;
-            RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
-            float3 Li_x = exp(-tLavaExit * globalDensity * (info.shape.sigmaA + info.shape.sigmaS)) * globalDensity * info.shape.sigmaS * _LightColor * stepSize * _LightIntensity; 
+            RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit);
+            float lightAttenuation = exp(-tLavaExit * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
+            float3 Li_x = GetPhase(ray.direction, lightDirection, info.shape) * lightAttenuation * globalDensity * info.shape.sigmaS * _LightColor * stepSize * _LightIntensity; 
 
             transmission = transmission * density;
             if (info.shape.useLight == 1)
@@ -205,7 +256,14 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
             }
                         
             // Early ray termination
-            if (transmission <= 0.05) break;
+            if (transmission <= 1e-3)
+            {
+                if (NormalDistribution(float2(0,1)) > 1.f / d)
+                {
+                    break;
+                }
+                transmission *= d;
+            }
         }
     }
     return float4(color, transmission);
@@ -213,6 +271,7 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
 
 float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
 {
+    int d = 2;
     float t = 0;
     float3 color = float3(0, 0, 0);
     float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
@@ -220,7 +279,8 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
 
     for (int i = 0; i < 100; i++) // Adjust max iterations as needed
     {
-        t = tEnter + i * stepSize;
+        float rand = NormalDistribution(float2(0,1));
+        t = tEnter + (i + rand) * stepSize;
                     
         if (t >= tExit) break;
                     
@@ -231,8 +291,9 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
         {
             float3 lightDirection = normalize(_Light - pos);
             float tLavaEnter, tLavaExit = 0;
-            RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
-            float3 Li_x = exp(-tLavaExit * globalDensity * (info.shape.sigmaA + info.shape.sigmaS)) * globalDensity * info.shape.sigmaS * _LightColor * stepSize * _LightIntensity; 
+            RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit);
+            float lightAttenuation = exp(-tLavaExit * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
+            float3 Li_x = GetPhase(ray.direction, lightDirection, info.shape) * lightAttenuation * globalDensity * info.shape.sigmaS * _LightColor * stepSize * _LightIntensity; 
 
             transmission = transmission * density;
             if (info.shape.useLight == 1)
@@ -245,7 +306,14 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
             }
                         
             // Early ray termination
-            if (transmission <= 0.05) break;
+            if (transmission <= 1e-3)
+            {
+                if (NormalDistribution(float2(0,1)) > 1.f / d)
+                {
+                    break;
+                }
+                transmission *= d;
+            }
         }
     }
     return float4(color, transmission);
