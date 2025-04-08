@@ -168,6 +168,86 @@ ShapeInfo SceneInfo(float3 eye) {
     return info;
 }
 
+float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
+{
+    float t = 0;
+    float3 color = float3(0, 0, 0);
+    float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
+    float transmission = 1;
+
+    for (int i = 0; i < 100; i++) // Adjust max iterations as needed
+    {
+        t = tExit - i * stepSize;
+                    
+        if (t < tEnter) break;
+                    
+        float3 pos = ray.origin + ray.direction * t;
+        float density = exp(-stepSize * info.shape.sigmaA);
+
+        if (density > 0.01) // Adjust threshold as needed
+        {
+            float3 lightDirection = normalize(pos - _Light);
+            float tLavaEnter, tLavaExit = 0;
+            RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
+            float3 Li_x = exp(-tLavaExit * info.shape.sigmaA) * _LightColor * stepSize * _LightIntensity; 
+
+            transmission = transmission * density;
+            if (info.shape.useLight == 1)
+            {
+                color = (color + Li_x) * density;
+            }
+            else
+            {
+                color = color * density;
+            }
+                        
+            // Early ray termination
+            if (transmission <= 0.05) break;
+        }
+    }
+    return float4(color, transmission);
+}
+
+float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
+{
+    float t = 0;
+    float3 color = float3(0, 0, 0);
+    float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
+    float transmission = 1;
+
+    for (int i = 0; i < 100; i++) // Adjust max iterations as needed
+    {
+        t = tEnter + i * stepSize;
+                    
+        if (t >= tExit) break;
+                    
+        float3 pos = ray.origin + ray.direction * t;
+        float density = exp(-stepSize * info.shape.sigmaA);
+
+        if (density > 0.01) // Adjust threshold as needed
+        {
+            float3 lightDirection = normalize(pos - _Light);
+            float tLavaEnter, tLavaExit = 0;
+            RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
+            float3 Li_x = exp(-tLavaExit * info.shape.sigmaA) * _LightColor * stepSize * _LightIntensity; 
+
+            transmission = transmission * density;
+            if (info.shape.useLight == 1)
+            {
+                color = color + Li_x * density;
+            }
+            else
+            {
+                color = color * density;
+            }
+                        
+            // Early ray termination
+            if (transmission <= 0.05) break;
+        }
+    }
+    return float4(color, transmission);
+}
+
 
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
@@ -180,10 +260,8 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     float rayDst = 0;
 
     Ray ray = CreateCameraRay(uv);
-    int marchSteps = 0;
 
     while (rayDst < maxDst) {
-        marchSteps ++;
         ShapeInfo info = SceneInfo(ray.origin);
 
         if (info.distToShape <= epsilon)
@@ -191,57 +269,10 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             float tEnter, tExit = 0;
             if (RayShapeIntersection(info.shape,  ray.origin, ray.direction, tEnter, tExit))
             {
-                // Save the original ray origin
-                float3 originalOrigin = ray.origin;
+                float4 result = ForwardRaymarching(ray, info, tEnter, tExit);
+                float3 color = result.xyz;
+                float transmission = result.w;
                 
-                // Move ray origin to entry point
-                float3 entryPoint = originalOrigin + ray.direction * tEnter;
-                
-                // Sample positions along the ray inside the box
-                float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
-                float t = 0;
-                float3 color = float3(0, 0, 0);
-                //float3 color = info.shape.color;
-                float transmission = 1;
-                // Raymarching loop inside the box
-                for (int i = 0; i < 100; i++) // Adjust max iterations as needed
-                {
-                    t = tExit - i * stepSize;
-                    
-                    if (t < tEnter) break;
-                    
-                    float3 pos = originalOrigin + ray.direction * t;
-                    float density = exp(-stepSize * info.shape.sigmaA);
-
-                    if (density > 0.01) // Adjust threshold as needed
-                    {
-                        float3 lightDirection = normalize(pos - _Light);
-                        float tLavaEnter, tLavaExit = 0;
-                        RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
-                        float3 Li_x = exp(-tLavaExit * info.shape.sigmaA) * _LightColor * stepSize * _LightIntensity; 
-
-                        /*
-                        float3 sampleColor = float3(
-                            (pos.x - info.shape.colliderMin.x) / (info.shape.colliderMax.x - info.shape.colliderMin.x),
-                            (pos.y - info.shape.colliderMin.y) / (info.shape.colliderMax.y - info.shape.colliderMin.y),
-                            (pos.z - info.shape.colliderMin.z) / (info.shape.colliderMax.z - info.shape.colliderMin.z)
-                        );
-                        */
-                        transmission = transmission * density;
-                        if (info.shape.useLight == 1)
-                        {
-                            color = (color + Li_x) * density;
-                        }
-                        else
-                        {
-                            color = color * density;
-                        }
-                        
-                        // Early ray termination
-                        if (transmission <= 0.05) break;
-                    }
-                }
-                // Output the final color with alpha composited over the background
                 float3 backgroundColor = Source[id.xy].rgb;
                 color = transmission * backgroundColor + (1 - transmission) * color;
                 Result[id.xy] = float4(color, 1.0f);
