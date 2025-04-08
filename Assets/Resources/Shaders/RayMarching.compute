@@ -9,6 +9,7 @@ RWTexture2D<float4> Result;
 float4x4 _CameraToWorld;
 float4x4 _CameraInverseProjection;
 
+float globalDensity;
 float3 _LightColor;
 float3 _Light;
 float _LightIntensity;
@@ -26,7 +27,9 @@ struct Shape {
     float3 colliderMax;
     int shapeType;
     float sigmaA;
+    float sigmaS;
     int useLight;
+    int useForwardRaymarching;
 };
 
 struct ShapeInfo {
@@ -182,14 +185,14 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
         if (t < tEnter) break;
                     
         float3 pos = ray.origin + ray.direction * t;
-        float density = exp(-stepSize * info.shape.sigmaA);
+        float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
 
         if (density > 0.01) // Adjust threshold as needed
         {
-            float3 lightDirection = normalize(pos - _Light);
+            float3 lightDirection = normalize(_Light - pos);
             float tLavaEnter, tLavaExit = 0;
             RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
-            float3 Li_x = exp(-tLavaExit * info.shape.sigmaA) * _LightColor * stepSize * _LightIntensity; 
+            float3 Li_x = exp(-tLavaExit * globalDensity * (info.shape.sigmaA + info.shape.sigmaS)) * globalDensity * info.shape.sigmaS * _LightColor * stepSize * _LightIntensity; 
 
             transmission = transmission * density;
             if (info.shape.useLight == 1)
@@ -222,14 +225,14 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
         if (t >= tExit) break;
                     
         float3 pos = ray.origin + ray.direction * t;
-        float density = exp(-stepSize * info.shape.sigmaA);
+        float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
 
         if (density > 0.01) // Adjust threshold as needed
         {
-            float3 lightDirection = normalize(pos - _Light);
+            float3 lightDirection = normalize(_Light - pos);
             float tLavaEnter, tLavaExit = 0;
             RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
-            float3 Li_x = exp(-tLavaExit * info.shape.sigmaA) * _LightColor * stepSize * _LightIntensity; 
+            float3 Li_x = exp(-tLavaExit * globalDensity * (info.shape.sigmaA + info.shape.sigmaS)) * globalDensity * info.shape.sigmaS * _LightColor * stepSize * _LightIntensity; 
 
             transmission = transmission * density;
             if (info.shape.useLight == 1)
@@ -269,7 +272,14 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             float tEnter, tExit = 0;
             if (RayShapeIntersection(info.shape,  ray.origin, ray.direction, tEnter, tExit))
             {
-                float4 result = ForwardRaymarching(ray, info, tEnter, tExit);
+                float4 result;
+                if (info.shape.useForwardRaymarching == 1)
+                {
+                    result = ForwardRaymarching(ray, info, tEnter, tExit);
+                } else
+                {
+                    result = BackwardRaymarching(ray, info, tEnter, tExit);
+                }
                 float3 color = result.xyz;
                 float transmission = result.w;
                 

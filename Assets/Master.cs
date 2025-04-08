@@ -6,6 +6,7 @@ public class Master : MonoBehaviour
 {
     [SerializeField] private List<Shape> shapes;
     [SerializeField] private Light light;
+    [SerializeField] private float globalDensity;
     private RenderTexture target;
     private Camera cam;
     private int kernelIndex;
@@ -51,7 +52,9 @@ public class Master : MonoBehaviour
                 colliderMax = shape.Collider.bounds.max,
                 shapeType = (int) shape.Type,
                 sigmaA = shape.SigmaA,
+                sigmaS = shape.SigmaS,
                 useLight = shape.UseLight ? 1 : 0,
+                useForwardRaymarching = shape.UseForwardReymarching ? 1 : 0,
             };
             shapeDatas[i] = shapeData;
         }
@@ -69,6 +72,7 @@ public class Master : MonoBehaviour
         raymarching.SetVector ("_Light", (!lightIsDirectional) ? light.transform.forward : light.transform.position);
         raymarching.SetVector ("_LightColor", light.color);
         raymarching.SetFloat ("_LightIntensity", light.intensity);
+        raymarching.SetFloat ("globalDensity", globalDensity);
         raymarching.SetBool ("positionLight", !lightIsDirectional);
 
     }
@@ -126,10 +130,12 @@ public class Master : MonoBehaviour
         public Vector3 colliderMax;
         public int shapeType;
         public float sigmaA;
+        public float sigmaS;
         public int useLight;
+        public int useForwardRaymarching;
         
         public static int GetSize () {
-            return sizeof (float) * 16 + sizeof (int) * 2;
+            return sizeof (float) * 17 + sizeof (int) * 3;
         }
     }
 }
