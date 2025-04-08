@@ -243,7 +243,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 }
                 // Output the final color with alpha composited over the background
                 float3 backgroundColor = Source[id.xy].rgb;
-                color = transmission * info.shape.color + (1 - transmission) * color;
+                color = transmission * backgroundColor + (1 - transmission) * color;
                 Result[id.xy] = float4(color, 1.0f);
                 return;
             }
