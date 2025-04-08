@@ -9,6 +9,11 @@ RWTexture2D<float4> Result;
 float4x4 _CameraToWorld;
 float4x4 _CameraInverseProjection;
 
+float3 _LightColor;
+float3 _Light;
+float _LightIntensity;
+bool positionLight;
+
 static const float maxDst = 80;
 static const float epsilon = 0.001f;
 
@@ -21,6 +26,7 @@ struct Shape {
     float3 colliderMax;
     int shapeType;
     float sigmaA;
+    int useLight;
 };
 
 struct ShapeInfo {
@@ -102,7 +108,7 @@ bool RayShapeIntersection(Shape shape, float3 rayOrigin, float3 rayDir, out floa
 {
     if(shape.shapeType == 0) 
     {
-        return RaySphereIntersection(rayOrigin, rayDir, shape.position, shape.size, tEnter, tExit);
+        return RaySphereIntersection(rayOrigin, rayDir, shape.position, shape.size.y, tEnter, tExit);
     }
     if(shape.shapeType == 1) 
     {
@@ -126,7 +132,7 @@ float getShapeDistance(float3 eye, Shape shape)
 {
     if(shape.shapeType == 0) 
     {
-        return sdSphere(eye - shape.position, shape.size);    
+        return sdSphere(eye - shape.position, shape.size.y);    
     }
     if(shape.shapeType == 1) 
     {
@@ -195,48 +201,50 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 float stepSize = (tExit - tEnter) / 100.0; // Adjust number of steps as needed
                 float t = 0;
                 float3 color = float3(0, 0, 0);
-                float alpha = 0;
-                
+                //float3 color = info.shape.color;
+                float transmission = 1;
                 // Raymarching loop inside the box
                 for (int i = 0; i < 100; i++) // Adjust max iterations as needed
                 {
-                    t = tEnter + i * stepSize;
+                    t = tExit - i * stepSize;
                     
-                    if (t > tExit) break;
+                    if (t < tEnter) break;
                     
-                    // Current position along the ray
                     float3 pos = originalOrigin + ray.direction * t;
-                    
-                    // Sample your volume data at this position
-                    // This is where you'll evaluate your density function, color transfer, etc.
-                    float density = info.shape.sigmaA; // You'll need to implement this function
-                    
+                    float density = exp(-stepSize * info.shape.sigmaA);
+
                     if (density > 0.01) // Adjust threshold as needed
                     {
-                        // Simple color mapping based on position
+                        float3 lightDirection = normalize(pos - _Light);
+                        float tLavaEnter, tLavaExit = 0;
+                        RayShapeIntersection(info.shape, pos, lightDirection, tLavaEnter, tLavaExit); 
+                        float3 Li_x = exp(-tLavaExit * info.shape.sigmaA) * _LightColor * stepSize * _LightIntensity; 
 
-                        float3 sampleColor = info.shape.color;
-
-                        /*float3 sampleColor = float3(
-                            (pos.x - _boxMin.x) / (_boxMax.x - _boxMin.x),
-                            (pos.y - _boxMin.y) / (_boxMax.y - _boxMin.y),
-                            (pos.z - _boxMin.z) / (_boxMax.z - _boxMin.z)
+                        /*
+                        float3 sampleColor = float3(
+                            (pos.x - info.shape.colliderMin.x) / (info.shape.colliderMax.x - info.shape.colliderMin.x),
+                            (pos.y - info.shape.colliderMin.y) / (info.shape.colliderMax.y - info.shape.colliderMin.y),
+                            (pos.z - info.shape.colliderMin.z) / (info.shape.colliderMax.z - info.shape.colliderMin.z)
                         );
                         */
-                        // Accumulate color (basic front-to-back compositing)
-                        float a = density * stepSize * 1.0; // Adjust density scale as needed
-                        color = color + (1.0 - alpha) * a * sampleColor;
-                        alpha = alpha + (1.0 - alpha) * a;
+                        transmission = transmission * density;
+                        if (info.shape.useLight == 1)
+                        {
+                            color = (color + Li_x) * density;
+                        }
+                        else
+                        {
+                            color = color * density;
+                        }
                         
                         // Early ray termination
-                        if (alpha >= 0.95) break;
+                        if (transmission <= 0.05) break;
                     }
                 }
-                
                 // Output the final color with alpha composited over the background
                 float3 backgroundColor = Source[id.xy].rgb;
-                color = color + (1.0 - alpha) * backgroundColor;
-                Result[id.xy] = float4(color, 1.0);
+                color = transmission * info.shape.color + (1 - transmission) * color;
+                Result[id.xy] = float4(color, 1.0f);
                 return;
             }
         }

@@ -5,6 +5,7 @@ using UnityEngine;
 public class Master : MonoBehaviour
 {
     [SerializeField] private List<Shape> shapes;
+    [SerializeField] private Light light;
     private RenderTexture target;
     private Camera cam;
     private int kernelIndex;
@@ -31,7 +32,15 @@ public class Master : MonoBehaviour
         ShapeData[] shapeDatas = new ShapeData[shapes.Count];
         for (int i = 0; i < shapes.Count; i++)
         {
+            
             Shape shape = shapes[i];
+            
+            if (shape == null) 
+            {
+                Debug.LogWarning($"Shape at index {i} is null, skipping.");
+                continue; // Skip this shape if it's destroyed or null
+            }
+            
             Vector3 col = new Vector3 (shape.Color.r, shape.Color.g, shape.Color.b);
             ShapeData shapeData = new ShapeData()
             {
@@ -42,6 +51,7 @@ public class Master : MonoBehaviour
                 colliderMax = shape.Collider.bounds.max,
                 shapeType = (int) shape.Type,
                 sigmaA = shape.SigmaA,
+                useLight = shape.UseLight ? 1 : 0,
             };
             shapeDatas[i] = shapeData;
         }
@@ -52,6 +62,15 @@ public class Master : MonoBehaviour
         raymarching.SetBuffer (kernelIndex, "shapes", shapeBuffer);
         raymarching.SetMatrix ("_CameraToWorld", cam.cameraToWorldMatrix);
         raymarching.SetMatrix ("_CameraInverseProjection", cam.projectionMatrix.inverse);
+        buffersToDispose.Add (shapeBuffer);
+        
+        
+        bool lightIsDirectional = light.type == LightType.Directional;
+        raymarching.SetVector ("_Light", (!lightIsDirectional) ? light.transform.forward : light.transform.position);
+        raymarching.SetVector ("_LightColor", light.color);
+        raymarching.SetFloat ("_LightIntensity", light.intensity);
+        raymarching.SetBool ("positionLight", !lightIsDirectional);
+
     }
 
     
@@ -69,7 +88,7 @@ public class Master : MonoBehaviour
             Graphics.Blit(source, destination); // не робимо нічого, якщо помилка
             return;
         }
-        
+        buffersToDispose = new List<ComputeBuffer> ();
         InitRenderTexture ();
         SetParameters();
         raymarching.SetTexture (kernelIndex, "Result", target);
@@ -80,6 +99,10 @@ public class Master : MonoBehaviour
         raymarching.Dispatch (kernelIndex, threadGroupsX, threadGroupsY, 1);
 
         Graphics.Blit (target, destination);
+
+        foreach (var buffer in buffersToDispose) {
+            buffer.Dispose ();
+        }
     }
 
     
@@ -103,9 +126,10 @@ public class Master : MonoBehaviour
         public Vector3 colliderMax;
         public int shapeType;
         public float sigmaA;
+        public int useLight;
         
         public static int GetSize () {
-            return sizeof (float) * 16 + sizeof (int);
+            return sizeof (float) * 16 + sizeof (int) * 2;
         }
     }
 }
