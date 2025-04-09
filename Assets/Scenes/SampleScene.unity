@@ -154,6 +154,7 @@ MonoBehaviour:
   color: {r: 1, g: 1, b: 1, a: 1}
   sigmaA: 1.985
   sigmaS: 1.085
+  featheringStrength: 0
   g: -0.24
   _collider: {fileID: 129114935}
   useLight: 1
@@ -580,6 +581,7 @@ MonoBehaviour:
   color: {r: 1, g: 1, b: 1, a: 1}
   sigmaA: 0.114
   sigmaS: 1.18
+  featheringStrength: 1
   g: -0.453
   _collider: {fileID: 2145502293}
   useLight: 1

@@ -29,6 +29,7 @@ struct Shape {
     int phaseType;
     float sigmaA;
     float sigmaS;
+    float featheringStrength;
     float g;
     int useLight;
     int useForwardRaymarching;
@@ -219,6 +220,91 @@ float GetPhase(float3 viewDir, float3 lightDir, Shape shape)
 }
 
 
+float hash(float3 p)
+{
+    p = frac(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float perlin(float3 p, float scale)
+{
+    p *= scale;
+    float3 i = floor(p);
+    float3 f = frac(p);
+
+    // Smoothstep interpolation
+    float3 u = f * f * (3.0 - 2.0 * f);
+
+    // Hash the corners of the cube
+    float n000 = hash(i + float3(0.0, 0.0, 0.0));
+    float n001 = hash(i + float3(0.0, 0.0, 1.0));
+    float n010 = hash(i + float3(0.0, 1.0, 0.0));
+    float n011 = hash(i + float3(0.0, 1.0, 1.0));
+    float n100 = hash(i + float3(1.0, 0.0, 0.0));
+    float n101 = hash(i + float3(1.0, 0.0, 1.0));
+    float n110 = hash(i + float3(1.0, 1.0, 0.0));
+    float n111 = hash(i + float3(1.0, 1.0, 1.0));
+
+    // Trilinear interpolation
+    return lerp(
+        lerp(lerp(n000, n100, u.x), lerp(n010, n110, u.x), u.y),
+        lerp(lerp(n001, n101, u.x), lerp(n011, n111, u.x), u.y),
+        u.z
+    );
+}
+
+float worley(float3 p, float scale)
+{
+    float3 id = floor(p * scale);
+    float3 fd = frac(p * scale);
+
+    float n = 0.;
+    float minimalDist = 1.;
+
+    for (float x = -1.; x <= 1.; x++)
+    {
+        for (float y = -1.; y <= 1.; y++)
+        {
+            for (float z = -1.; z <= 1.; z++)
+            {
+
+                float3 coord = float3(x, y, z);
+                float3 rId = hash(id + coord % scale) * 0.5 + 0.5;
+
+                float3 r = coord + rId - fd;
+
+                float d = dot(r, r);
+
+                if (d < minimalDist)
+                {
+                    minimalDist = d;
+                }
+
+            } //z
+        } //y
+    } //x
+    
+    return 1.0 - minimalDist;
+}
+
+
+float feather(float3 pos, Shape shape, float featherStrength)
+{
+    float distCenter;
+    if (shape.shapeType == 1)
+        distCenter = max(max(length(shape.position.x - pos.x), length(shape.position.y - pos.y)), length(shape.position.z - pos.z)); //distance to center for square
+    else
+        distCenter = abs(length(pos - shape.position)); // generic distance to center (spherical)
+    
+    float distCenterNormalized = distCenter / shape.size; // normalizes to 0-1 range
+    float featherValue = pow(-distCenterNormalized + 1, featherStrength); // maps 0-1 range to a smooth feathering function
+    featherValue *= shape.size; // returning to original scale
+    
+    return featherValue;
+}
+
+
 float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
 {
     int d = 2;
@@ -236,6 +322,8 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
                     
         float3 pos = ray.origin + ray.direction * t;
         float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
+        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2); //* pow(worley(pos, 1), 2);
+        density *= noise;
 
         if (density > 0.01) // Adjust threshold as needed
         {
@@ -286,7 +374,9 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
                     
         float3 pos = ray.origin + ray.direction * t;
         float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
-
+        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2); //* pow(worley(pos, 1), 2);
+        density *= noise;
+        
         if (density > 0.01) // Adjust threshold as needed
         {
             float3 lightDirection = normalize(_Light - pos);
