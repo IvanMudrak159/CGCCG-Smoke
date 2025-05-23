@@ -1,16 +1,40 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[ExecuteInEditMode, ImageEffectAllowedInSceneView]
+[ImageEffectAllowedInSceneView]
 public class Master : MonoBehaviour
 {
     [SerializeField] private List<Shape> shapes;
     [SerializeField] private Light light;
     [SerializeField] private float globalDensity;
+    [SerializeField] private Voxelizer smokeVoxelData = null;
+    [Range(0.0f, 1.0f), SerializeField] private float densityFalloff = 0.25f;
+    [SerializeField, Range(0, 2)] private float sigmaA; 
+    [SerializeField, Range(0, 2)] private float sigmaS;
+    [SerializeField] private bool useLight;
+    [SerializeField] private Shape.PhaseType phase = Shape.PhaseType.Isotropic;
+    [SerializeField, Range(-0.5f, 0.5f)] private float g; 
+    [Range(1, 2560)] public int stepCount = 150;
+    [Range(1, 32)] public int lightStepCount = 16;
+    public Color smokeColor;
+    public Color extinctionColor;
+    [Range(0.01f, 0.1f)] public float stepSize = 0.05f;
+    [Range(0.01f, 1.0f)] public float lightStepSize = 0.25f;
+    [Range(0.0f, 10.0f)] public float volumeDensity = 1.0f;
+    [Range(0.0f, 10.0f)] public float shadowDensity = 1.0f;
+    [Range(0.0f, 1.0f)] public float alphaThreshold = 0.1f;
+    [Range(0.0f, 3.0f)] public float scatteringCoefficient = 0.5f;
+    [Range(-1.0f, 1.0f)] public float sharpness;
+    private RenderTexture smokeAlbedoFullTex;
+    private RenderTexture smokeMaskFullTex;
+
     private RenderTexture target;
     private Camera cam;
     private int kernelIndex;
     private ComputeShader raymarching;
+    private ComputeBuffer smokeVoxelBuffer;
+    private RenderTexture depthTex;
+    private Material compositeMaterial;
 
     private List<ComputeBuffer> buffersToDispose;
 
@@ -26,6 +50,21 @@ public class Master : MonoBehaviour
         {
             kernelIndex = raymarching.FindKernel("CSMain");
         }
+        
+        depthTex = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Linear);
+        depthTex.enableRandomWrite = true;
+        depthTex.Create();
+        
+        smokeAlbedoFullTex = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+        smokeAlbedoFullTex.enableRandomWrite = true;
+        smokeAlbedoFullTex.Create();
+
+        smokeMaskFullTex = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear);
+        smokeMaskFullTex.enableRandomWrite = true;
+        smokeMaskFullTex.Create();
+        
+        compositeMaterial = new Material(Shader.Find("Hidden/CompositeEffects"));
+
     }
 
     void SetParameters ()
@@ -39,7 +78,7 @@ public class Master : MonoBehaviour
             if (shape == null) 
             {
                 Debug.LogWarning($"Shape at index {i} is null, skipping.");
-                continue; // Skip this shape if it's destroyed or null
+                continue;
             }
             
             Vector3 col = new Vector3 (shape.Color.r, shape.Color.g, shape.Color.b);
@@ -77,13 +116,55 @@ public class Master : MonoBehaviour
         raymarching.SetFloat ("_LightIntensity", light.intensity);
         raymarching.SetFloat ("globalDensity", globalDensity);
         raymarching.SetBool ("positionLight", !lightIsDirectional);
+        raymarching.SetFloat("_DensityFalloff", 1 - densityFalloff);
 
+        Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(cam.projectionMatrix, false);
+        Matrix4x4 viewProjMatrix = projMatrix * cam.worldToCameraMatrix;
+        raymarching.SetMatrix("_CameraInvViewProjection", viewProjMatrix.inverse);
+
+        raymarching.SetVector("_Radius", smokeVoxelData.GetSmokeRadius());
+        raymarching.SetVector("_SmokeOrigin", smokeVoxelData.GetSmokeOrigin());
+        raymarching.SetTexture(kernelIndex, "_DepthTex", depthTex);
+        
+        raymarching.SetFloat("sigmaA",  sigmaA);
+        raymarching.SetFloat("sigmaS",  sigmaS);
+        int lightUse = useLight ? 1 : 0;
+        raymarching.SetInt("useLight", lightUse);
+        raymarching.SetInt("phaseType", (int) phase);
+        raymarching.SetFloat("g", g);
+        
+        raymarching.SetInt("_StepCount", stepCount);
+        raymarching.SetInt("_LightStepCount", lightStepCount);
+
+        raymarching.SetVector("_SmokeColor", smokeColor);
+        raymarching.SetVector("_ExtinctionColor", extinctionColor);
+
+        raymarching.SetFloat("_VolumeDensity", volumeDensity * stepSize);
+        raymarching.SetFloat("_ShadowDensity", shadowDensity * lightStepSize);
+
+        raymarching.SetFloat("_StepSize", stepSize);
+        raymarching.SetFloat("_LightStepSize", lightStepSize);
+        raymarching.SetFloat("_ScatteringCoefficient", scatteringCoefficient);
+        raymarching.SetFloat("_AlphaThreshold", alphaThreshold);
+        
+        raymarching.SetTexture(kernelIndex, "_SmokeMaskTex", smokeMaskFullTex);
+        raymarching.SetTexture (kernelIndex, "Result", target);
     }
 
-    
+    void Update()
+    {
+        if (smokeVoxelData != null) {
+            smokeVoxelBuffer = smokeVoxelData.GetSmokeVoxelBuffer(); 
+            raymarching.SetBuffer(0, "_SmokeVoxels", smokeVoxelBuffer);
+            raymarching.SetVector("_BoundsExtent", smokeVoxelData.GetBoundsExtent());
+            raymarching.SetVector("_VoxelResolution", smokeVoxelData.GetVoxelResolution());
+        }
+    }
+
     void OnRenderImage (RenderTexture source, RenderTexture destination) {
+
+        Graphics.Blit(source, depthTex, compositeMaterial, 0);
         
-        // Get the current camera that's rendering (works for both Game and Scene view)
         cam = Camera.current;
         if (cam == null)
         {
@@ -92,27 +173,30 @@ public class Master : MonoBehaviour
         
         if (cam == null || raymarching == null)
         {
-            Graphics.Blit(source, destination); // не робимо нічого, якщо помилка
+            Graphics.Blit(source, destination);
             return;
         }
         buffersToDispose = new List<ComputeBuffer> ();
         InitRenderTexture ();
         SetParameters();
-        raymarching.SetTexture (kernelIndex, "Result", target);
         raymarching.SetTexture (kernelIndex, "Source", source);
 
         int threadGroupsX = Mathf.CeilToInt (cam.pixelWidth / 8.0f);
         int threadGroupsY = Mathf.CeilToInt (cam.pixelHeight / 8.0f);
         raymarching.Dispatch (kernelIndex, threadGroupsX, threadGroupsY, 1);
 
-        Graphics.Blit (target, destination);
+        compositeMaterial.SetTexture("_SmokeTex", target);
+        compositeMaterial.SetTexture("_SmokeMaskTex", smokeMaskFullTex);
+        compositeMaterial.SetTexture("_DepthTex", depthTex);
+        compositeMaterial.SetFloat("_Sharpness", sharpness);
+        compositeMaterial.SetFloat("_DebugView", 0);
+        Graphics.Blit(target, destination, compositeMaterial, 2);
 
         foreach (var buffer in buffersToDispose) {
             buffer.Dispose ();
         }
     }
 
-    
     private void InitRenderTexture () {
         if (target == null || target.width != cam.pixelWidth || target.height != cam.pixelHeight) {
             if (target != null) {
