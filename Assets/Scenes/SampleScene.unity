@@ -154,11 +154,11 @@ MonoBehaviour:
   color: {r: 1, g: 1, b: 1, a: 1}
   sigmaA: 1.985
   sigmaS: 1.085
-  featheringStrength: 0
+  featheringStrength: 1
   g: -0.24
   _collider: {fileID: 129114935}
   useLight: 1
-  useForwardReymarching: 0
+  useForwardReymarching: 1
 --- !u!135 &129114935
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -333,7 +333,7 @@ Light:
   serializedVersion: 11
   m_Type: 1
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_Intensity: 1
+  m_Intensity: 100000
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208

@@ -256,10 +256,9 @@ float perlin(float3 p, float scale)
 
 float worley(float3 p, float scale)
 {
-    float3 id = floor(p * scale);
-    float3 fd = frac(p * scale);
+    float3 id = floor(p);
+    float3 fd = frac(p);
 
-    float n = 0.;
     float minimalDist = 1.;
 
     for (float x = -1.; x <= 1.; x++)
@@ -270,7 +269,7 @@ float worley(float3 p, float scale)
             {
 
                 float3 coord = float3(x, y, z);
-                float3 rId = hash(id + coord % scale) * 0.5 + 0.5;
+                float3 rId = hash(id + coord) * 0.5 + 0.5;
 
                 float3 r = coord + rId - fd;
 
@@ -374,7 +373,7 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
                     
         float3 pos = ray.origin + ray.direction * t;
         float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
-        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2); //* pow(worley(pos, 1), 2);
+        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2) * pow(worley(pos, 1), 2);
         density *= noise;
         
         if (density > 0.01) // Adjust threshold as needed
@@ -443,7 +442,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 
                 float3 backgroundColor = Source[id.xy].rgb;
                 color = transmission * backgroundColor + (1 - transmission) * color;
-                Result[id.xy] = float4(color, 1.0f);
+                Result[id.xy] = float4(color, transmission);
                 return;
             }
         }
