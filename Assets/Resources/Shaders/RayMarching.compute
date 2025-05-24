@@ -328,6 +328,11 @@ float worley(float3 p, float scale)
     return 1.0 - minimalDist;
 }
 
+float getNoise(float3 pos) {
+    float noise = perlin(pos, 2.0) * worley(pos, 1.0);
+    return saturate(noise);
+}
+
 
 float feather(float3 pos, Shape shape, float featherStrength)
 {
@@ -417,7 +422,7 @@ float getDensity(float3 pos) {
 
     v = getTrilinearVoxel(pos);
 
-    //n = getNoise(pos);
+    n = getNoise(pos);
 
     float dist = min(1.0f, length(vp / radius));
     float voxelDist = min(1.0f, 1 - (v / 16.0f));
@@ -447,9 +452,8 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
                     
         float3 pos = ray.origin + ray.direction * t;
         float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
-        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2);
-        //* pow(worley(pos, 1), 2);
-        //density *= noise;
+        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2) * pow(worley(pos, 1), 2);
+        density *= noise;
 
         if (density > 0.01) // Adjust threshold as needed
         {
@@ -668,6 +672,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
         if (alpha < _AlphaThreshold) alpha = 0;
         float3 backgroundColor = Source[id.xy].rgb;
         col = alpha * backgroundColor + (1 - alpha) * col;
+        
         Result[id.xy] = float4(saturate(col), 1.0f);
         _SmokeMaskTex[id.xy] = saturate(alpha);
     }
