@@ -43,6 +43,8 @@ float _StepSize, _LightStepSize;
 float _ScatteringCoefficient;
 float _AlphaThreshold;
 
+float _ElapsedTime;
+
 static const float maxDst = 80;
 static const float epsilon = 0.001f;
 
@@ -329,7 +331,8 @@ float worley(float3 p, float scale)
 }
 
 float getNoise(float3 pos) {
-    float noise = perlin(pos, 2.0) * worley(pos, 1.0);
+    float3 samplePos = pos + float3(0.0f,(float)_ElapsedTime*0.5f,0.0f);
+    float noise = perlin(samplePos*1.0, 2.0) * worley(samplePos*0.6, 1.0);
     return saturate(noise);
 }
 

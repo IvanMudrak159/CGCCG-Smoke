@@ -146,6 +146,8 @@ public class Master : MonoBehaviour
         raymarching.SetFloat("_LightStepSize", lightStepSize);
         raymarching.SetFloat("_ScatteringCoefficient", scatteringCoefficient);
         raymarching.SetFloat("_AlphaThreshold", alphaThreshold);
+
+        raymarching.SetFloat("_ElapsedTime", Time.time);
         
         raymarching.SetTexture(kernelIndex, "_SmokeMaskTex", smokeMaskFullTex);
         raymarching.SetTexture (kernelIndex, "Result", target);
