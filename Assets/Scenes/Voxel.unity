@@ -514,8 +514,6 @@ MonoBehaviour:
   alphaThreshold: 0
   scatteringCoefficient: 0.89
   sharpness: -1
-  bicubicUpscale: 1
-  resolutionScale: 1
 --- !u!1 &982589275
 GameObject:
   m_ObjectHideFlags: 0
@@ -551,7 +549,9 @@ MonoBehaviour:
   color: {r: 1, g: 1, b: 1, a: 1}
   sigmaA: 0.304
   sigmaS: 1.18
-  featheringStrength: 1
+  sparsity: 0
+  transparency: 0
+  gravityMultiplier: 0.5
   g: -0.453
   _collider: {fileID: 982589277}
   useLight: 1

@@ -12,6 +12,7 @@ public class Shape : MonoBehaviour
     [SerializeField, Range(0, 2)] private float sigmaS;
     [SerializeField, Range(0, 1)] private float sparsity;
     [SerializeField, Range(0, 1)] private float transparency;
+    [SerializeField, Range(-3, 3)] private float gravityMultiplier;
     [SerializeField, Range(-0.5f, 0.5f)] private float g; 
     [SerializeField] private Collider _collider;
     [SerializeField] private bool useLight;
@@ -24,6 +25,7 @@ public class Shape : MonoBehaviour
     public float SigmaS => sigmaS;
     public float Sparsity => sparsity;
     public float Transparency => transparency;
+    public float GravityMultiplier => gravityMultiplier;
     public float G => g;
     public Vector3 Position => transform.position;
     public Collider Collider => _collider;

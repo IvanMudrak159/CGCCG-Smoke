@@ -95,6 +95,7 @@ public class Master : MonoBehaviour
                 sigmaS = shape.SigmaS,
                 sparsity = shape.Sparsity,
                 transparency = shape.Transparency,
+                gravityMultiplier = shape.GravityMultiplier,
                 g = shape.G,
                 useLight = shape.UseLight ? 1 : 0,
                 useForwardRaymarching = shape.UseForwardReymarching ? 1 : 0,
@@ -224,12 +225,13 @@ public class Master : MonoBehaviour
         public float sigmaS;
         public float sparsity;
         public float transparency;
+        public float gravityMultiplier;
         public float g;
         public int useLight;
         public int useForwardRaymarching;
         
         public static int GetSize () {
-            return sizeof (float) * 20 + sizeof (int) * 4;
+            return sizeof (float) * 21 + sizeof (int) * 4;
         }
     }
 }

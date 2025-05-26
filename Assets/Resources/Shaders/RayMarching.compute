@@ -64,6 +64,7 @@ struct Shape {
     float sigmaS;
     float sparsity;
     float transparency;
+    float gravityMultiplier;
     float g;
     int useLight;
     int useForwardRaymarching;
@@ -334,7 +335,7 @@ float worley(float3 p)
 }
 
 float getNoise(float3 pos, ShapeInfo info) {
-    float3 samplePos = pos + float3(0.0f,(float)_ElapsedTime*0.5f,0.0f);    // animation offset
+    float3 samplePos = pos + float3(0.0f,(float)_ElapsedTime*info.shape.gravityMultiplier,0.0f);    // animation offset
     
     float sparsity = info.shape.sparsity;
 
