@@ -10,7 +10,8 @@ public class Shape : MonoBehaviour
     [SerializeField] private Color color = Color.white;
     [SerializeField, Range(0, 2)] private float sigmaA; 
     [SerializeField, Range(0, 2)] private float sigmaS;
-    [SerializeField, Range(1, 4)] private float featheringStrength;
+    [SerializeField, Range(0, 1)] private float sparsity;
+    [SerializeField, Range(0, 1)] private float transparency;
     [SerializeField, Range(-0.5f, 0.5f)] private float g; 
     [SerializeField] private Collider _collider;
     [SerializeField] private bool useLight;
@@ -21,7 +22,8 @@ public class Shape : MonoBehaviour
     public Color Color => color;
     public float SigmaA => sigmaA;
     public float SigmaS => sigmaS;
-    public float FeatheringStrength => featheringStrength;
+    public float Sparsity => sparsity;
+    public float Transparency => transparency;
     public float G => g;
     public Vector3 Position => transform.position;
     public Collider Collider => _collider;

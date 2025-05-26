@@ -93,7 +93,8 @@ public class Master : MonoBehaviour
                 phaseType = (int) shape.TypePhase,
                 sigmaA = shape.SigmaA,
                 sigmaS = shape.SigmaS,
-                featheringStrength = shape.FeatheringStrength,
+                sparsity = shape.Sparsity,
+                transparency = shape.Transparency,
                 g = shape.G,
                 useLight = shape.UseLight ? 1 : 0,
                 useForwardRaymarching = shape.UseForwardReymarching ? 1 : 0,
@@ -221,13 +222,14 @@ public class Master : MonoBehaviour
         public int phaseType;
         public float sigmaA;
         public float sigmaS;
-        public float featheringStrength;
+        public float sparsity;
+        public float transparency;
         public float g;
         public int useLight;
         public int useForwardRaymarching;
         
         public static int GetSize () {
-            return sizeof (float) * 19 + sizeof (int) * 4;
+            return sizeof (float) * 20 + sizeof (int) * 4;
         }
     }
 }

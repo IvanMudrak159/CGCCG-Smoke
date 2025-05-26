@@ -47,6 +47,9 @@ float _ElapsedTime;
 
 static const float maxDst = 80;
 static const float epsilon = 0.001f;
+static const float perlinBaseScaleHigh = 2.0f;
+static const float perlinBaseScaleLow = 0.4f;
+static const float worleyBaseScale = 0.6f;
 
 struct Shape {
     
@@ -59,7 +62,8 @@ struct Shape {
     int phaseType;
     float sigmaA;
     float sigmaS;
-    float featheringStrength;
+    float sparsity;
+    float transparency;
     float g;
     int useLight;
     int useForwardRaymarching;
@@ -270,9 +274,8 @@ float hash(float3 p)
     return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
 }
 
-float perlin(float3 p, float scale)
+float perlin(float3 p)
 {
-    p *= scale;
     float3 i = floor(p);
     float3 f = frac(p);
 
@@ -297,7 +300,7 @@ float perlin(float3 p, float scale)
     );
 }
 
-float worley(float3 p, float scale)
+float worley(float3 p)
 {
     float3 id = floor(p);
     float3 fd = frac(p);
@@ -330,27 +333,38 @@ float worley(float3 p, float scale)
     return 1.0 - minimalDist;
 }
 
-float getNoise(float3 pos) {
+float getNoise(float3 pos, ShapeInfo info) {
     float3 samplePos = pos + float3(0.0f,(float)_ElapsedTime*0.5f,0.0f);
-    float noise = perlin(samplePos*1.0, 2.0) * worley(samplePos*0.6, 1.0);
+    float sparsity = info.shape.sparsity;
+
+    float lowPerlin = perlin(samplePos * perlinBaseScaleLow) * sparsity + (1-sparsity);
+    lowPerlin = lowPerlin * 0.7f + 0.2f;
+    lowPerlin = 1/lowPerlin;
+    lowPerlin *= lowPerlin;
+     
+    float highPerlin = perlin(samplePos * perlinBaseScaleHigh * (1+0.3f*sparsity));
+    float baseWorley = worley(samplePos * worleyBaseScale * (1+0.3f*sparsity));
+    baseWorley *= baseWorley * baseWorley;
+
+    float noise = lowPerlin * highPerlin * baseWorley;
     return saturate(noise);
 }
 
 
-float feather(float3 pos, Shape shape, float featherStrength)
-{
-    float distCenter;
-    if (shape.shapeType == 1)
-        distCenter = max(max(length(shape.position.x - pos.x), length(shape.position.y - pos.y)), length(shape.position.z - pos.z)); //distance to center for square
-    else
-        distCenter = abs(length(pos - shape.position)); // generic distance to center (spherical)
-    
-    float distCenterNormalized = distCenter / shape.size; // normalizes to 0-1 range
-    float featherValue = pow(-distCenterNormalized + 1, featherStrength); // maps 0-1 range to a smooth feathering function
-    featherValue *= shape.size; // returning to original scale
-    
-    return featherValue;
-}
+//float feather(float3 pos, Shape shape, float featherStrength)
+//{
+//    float distCenter;
+//    if (shape.shapeType == 1)
+//        distCenter = max(max(length(shape.position.x - pos.x), length(shape.position.y - pos.y)), length(shape.position.z - pos.z)); //distance to center for square
+//    else
+//        distCenter = abs(length(pos - shape.position)); // generic distance to center (spherical)
+//    
+//    float distCenterNormalized = distCenter / shape.size; // normalizes to 0-1 range
+//    float featherValue = pow(-distCenterNormalized + 1, featherStrength); // maps 0-1 range to a smooth feathering function
+//    featherValue *= shape.size; // returning to original scale
+//    
+//    return featherValue;
+//}
 
 uint to1D(uint3 pos) {
     return pos.x + pos.y * _VoxelResolution.x + pos.z * _VoxelResolution.x * _VoxelResolution.y;
@@ -414,7 +428,7 @@ float getTrilinearVoxel(float3 pos) {
     return v;
 }
 
-float getDensity(float3 pos) {
+float getDensity(float3 pos, ShapeInfo info) {
     float v = 0;
     float n = 0.0f;
     float falloff = 0.0f;
@@ -425,7 +439,7 @@ float getDensity(float3 pos) {
 
     v = getTrilinearVoxel(pos);
 
-    n = getNoise(pos);
+    n = getNoise(pos, info);
 
     float dist = min(1.0f, length(vp / radius));
     float voxelDist = min(1.0f, 1 - (v / 16.0f));
@@ -435,7 +449,7 @@ float getDensity(float3 pos) {
 
     falloff = min(1.0f, dist + n);
 
-    return saturate(saturate(v) * (1 - falloff));
+    return saturate(saturate(v) * (1 - falloff) * (1-info.shape.transparency));
 }
 
 float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
@@ -455,7 +469,7 @@ float4 BackwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
                     
         float3 pos = ray.origin + ray.direction * t;
         float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
-        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2) * pow(worley(pos, 1), 2);
+        float noise = /*feather(pos, info.shape, info.shape.featheringStrength) * */ pow(perlin(pos*2), 2) * pow(worley(pos), 2);
         density *= noise;
 
         if (density > 0.01) // Adjust threshold as needed
@@ -507,7 +521,7 @@ float4 ForwardRaymarching(Ray ray, ShapeInfo info, float tEnter, float tExit)
                     
         float3 pos = ray.origin + ray.direction * t;
         float density = exp(-stepSize * globalDensity * (info.shape.sigmaA + info.shape.sigmaS));
-        float noise = feather(pos, info.shape, info.shape.featheringStrength) * pow(perlin(pos, 2), 2) * pow(worley(pos, 1), 2);
+        float noise = /*feather(pos, info.shape, info.shape.featheringStrength) * */ pow(perlin(pos*2), 2) * pow(worley(pos), 2);
         density *= noise;
         
         if (density > 0.01) // Adjust threshold as needed
@@ -621,6 +635,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     float v = getVoxel(samplePos);
     float3 col;
     float alpha = 1.0f;
+    ShapeInfo info = SceneInfo(samplePos);
 
     
     while (v == 0 && distanceTraveled < maxDst) {
@@ -640,12 +655,11 @@ void CSMain (uint3 id : SV_DispatchThreadID)
         float lStepSize = _LightStepSize;;
         float accumDensity = 0.0f;
 
-
         int stepCount = 0;
         float sceneIntersectDistance = -((ray.origin - sceneWorldPos) / ray.direction).x;
         while ((stepCount < _StepCount) && distanceTraveled < sceneIntersectDistance) {
             samplePos = ray.origin + distanceTraveled * ray.direction;
-            v = getDensity(samplePos);
+            v = getDensity(samplePos, info);
             float sampleDensity = v;
             accumDensity += sampleDensity * _VolumeDensity;
             float3 lightDirection = normalize(_Light - samplePos);
@@ -662,7 +676,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 while (lStepCount < _LightStepCount) {
                     tau += v * _ShadowDensity;
                     lightPos -= lStepSize * float3(0, -1, 0);
-                    v = getDensity(lightPos);
+                    v = getDensity(lightPos, info);
                     lStepCount++;
                 }
 
