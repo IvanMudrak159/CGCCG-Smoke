@@ -334,17 +334,18 @@ float worley(float3 p)
 }
 
 float getNoise(float3 pos, ShapeInfo info) {
-    float3 samplePos = pos + float3(0.0f,(float)_ElapsedTime*0.5f,0.0f);
+    float3 samplePos = pos + float3(0.0f,(float)_ElapsedTime*0.5f,0.0f);    // animation offset
+    
     float sparsity = info.shape.sparsity;
 
-    float lowPerlin = perlin(samplePos * perlinBaseScaleLow) * sparsity + (1-sparsity);
-    lowPerlin = lowPerlin * 0.7f + 0.2f;
-    lowPerlin = 1/lowPerlin;
-    lowPerlin *= lowPerlin;
+    float lowPerlin = perlin(samplePos * perlinBaseScaleLow) * sparsity + (1-sparsity);     // applies a low frequency to mask sparse areas
+    lowPerlin = lowPerlin * 0.7f + 0.2f;    // grants a subtle base noise
+    lowPerlin = 1/lowPerlin;    // correcting the range
+    lowPerlin *= lowPerlin;     // increase sharpness
      
-    float highPerlin = perlin(samplePos * perlinBaseScaleHigh * (1+0.3f*sparsity));
-    float baseWorley = worley(samplePos * worleyBaseScale * (1+0.3f*sparsity));
-    baseWorley *= baseWorley * baseWorley;
+    float highPerlin = perlin(samplePos * perlinBaseScaleHigh * (1+0.3f*sparsity));     // higher frequency
+    float baseWorley = worley(samplePos * worleyBaseScale * (1+0.3f*sparsity));         // for sparser smoke
+    baseWorley *= baseWorley * baseWorley * baseWorley * baseWorley;    // increase sharpness
 
     float noise = lowPerlin * highPerlin * baseWorley;
     return saturate(noise);
