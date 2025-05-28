@@ -25,8 +25,8 @@ public class Master : MonoBehaviour
     [Range(0.0f, 1.0f)] public float alphaThreshold = 0.1f;
     [Range(0.0f, 3.0f)] public float scatteringCoefficient = 0.5f;
     [Range(-1.0f, 1.0f)] public float sharpness;
-    private RenderTexture smokeAlbedoFullTex;
-    private RenderTexture smokeMaskFullTex;
+    private RenderTexture smokeAlbedoFullTex, smokeAlbedoQuarterTex;
+    private RenderTexture smokeMaskFullTex , smokeMaskQuarterTex;
 
     private RenderTexture target;
     private Camera cam;
@@ -62,6 +62,14 @@ public class Master : MonoBehaviour
         smokeMaskFullTex = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear);
         smokeMaskFullTex.enableRandomWrite = true;
         smokeMaskFullTex.Create();
+
+        smokeAlbedoQuarterTex = new RenderTexture(Screen.width/4, Screen.height/4, 0, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+        smokeAlbedoQuarterTex.enableRandomWrite = true;
+        smokeAlbedoQuarterTex.Create();
+
+        smokeMaskQuarterTex = new RenderTexture(Screen.width/4, Screen.height/4, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear);
+        smokeMaskQuarterTex.enableRandomWrite = true;
+        smokeMaskQuarterTex.Create();
         
         compositeMaterial = new Material(Shader.Find("Hidden/CompositeEffects"));
 
@@ -166,7 +174,6 @@ public class Master : MonoBehaviour
     }
 
     void OnRenderImage (RenderTexture source, RenderTexture destination) {
-
         Graphics.Blit(source, depthTex, compositeMaterial, 0);
         
         cam = Camera.current;
@@ -183,21 +190,36 @@ public class Master : MonoBehaviour
         buffersToDispose = new List<ComputeBuffer> ();
         InitRenderTexture ();
         SetParameters();
+        // --- Render smoke at quarter resolution ---
+        // Set up quarter-res target for raymarching
+        RenderTexture quarterTarget = smokeAlbedoQuarterTex;
         raymarching.SetTexture (kernelIndex, "Source", source);
-
-        int threadGroupsX = Mathf.CeilToInt (cam.pixelWidth / 8.0f);
-        int threadGroupsY = Mathf.CeilToInt (cam.pixelHeight / 8.0f);
+        raymarching.SetTexture (kernelIndex, "Result", quarterTarget);
+        raymarching.SetTexture (kernelIndex, "_SmokeMaskTex", smokeMaskQuarterTex);
+        int threadGroupsX = Mathf.CeilToInt (quarterTarget.width / 8.0f);
+        int threadGroupsY = Mathf.CeilToInt (quarterTarget.height / 8.0f);
         raymarching.Dispatch (kernelIndex, threadGroupsX, threadGroupsY, 1);
 
-        compositeMaterial.SetTexture("_SmokeTex", target);
-        compositeMaterial.SetTexture("_SmokeMaskTex", smokeMaskFullTex);
+        // Upscale quarter-res smoke to full-res target
+        // (target is a full-res RenderTexture)
+        compositeMaterial.SetTexture("_SmokeTex", smokeAlbedoQuarterTex);
+        compositeMaterial.SetTexture("_SmokeMaskTex", smokeMaskQuarterTex);
         compositeMaterial.SetTexture("_DepthTex", depthTex);
+        compositeMaterial.SetTexture("_MainTex", source); // Pass full-res scene to composite
         compositeMaterial.SetFloat("_Sharpness", sharpness);
         compositeMaterial.SetFloat("_DebugView", 0);
-        Graphics.Blit(target, destination, compositeMaterial, 2);
 
-        foreach (var buffer in buffersToDispose) {
-            buffer.Dispose ();
+        // Upscale smoke only: write upscaled smoke to 'target' (full-res, only smoke)
+        Graphics.Blit(smokeAlbedoQuarterTex, target, compositeMaterial, 1);
+
+        // Composite upscaled smoke over the original full-res scene
+        // Output to destination
+        compositeMaterial.SetTexture("_SmokeTex", target); // Now _SmokeTex is full-res upscaled smoke
+        Graphics.Blit(source, destination, compositeMaterial, 2);
+
+        foreach (var buffer in buffersToDispose)
+        {
+            buffer.Dispose();
         }
     }
 
