@@ -190,22 +190,31 @@ public class Master : MonoBehaviour
         buffersToDispose = new List<ComputeBuffer> ();
         InitRenderTexture ();
         SetParameters();
-        // --- Render smoke at quarter resolution ---
-        // Set up quarter-res target for raymarching
+
+        // Render smoke at quarter resolution
         RenderTexture quarterTarget = smokeAlbedoQuarterTex;
         raymarching.SetTexture (kernelIndex, "Source", source);
         raymarching.SetTexture (kernelIndex, "Result", quarterTarget);
+
+        // Create a texture filled with 1.0 and blit it to smokeMaskQuarterTex
+        // this is hacky but will prevent most artifacts, with some on the borders still
+        RenderTexture onesTex = RenderTexture.GetTemporary(smokeMaskQuarterTex.width, smokeMaskQuarterTex.height, 0, smokeMaskQuarterTex.format, RenderTextureReadWrite.Linear);
+        var oldActive = RenderTexture.active;
+        RenderTexture.active = onesTex;
+        GL.Clear(false, true, Color.white, 1.0f);
+        RenderTexture.active = oldActive;
+        Graphics.Blit(onesTex, smokeMaskQuarterTex);
+        RenderTexture.ReleaseTemporary(onesTex);
+
         raymarching.SetTexture (kernelIndex, "_SmokeMaskTex", smokeMaskQuarterTex);
         int threadGroupsX = Mathf.CeilToInt (quarterTarget.width / 8.0f);
         int threadGroupsY = Mathf.CeilToInt (quarterTarget.height / 8.0f);
         raymarching.Dispatch (kernelIndex, threadGroupsX, threadGroupsY, 1);
 
-        // Upscale quarter-res smoke to full-res target
-        // (target is a full-res RenderTexture)
         compositeMaterial.SetTexture("_SmokeTex", smokeAlbedoQuarterTex);
         compositeMaterial.SetTexture("_SmokeMaskTex", smokeMaskQuarterTex);
         compositeMaterial.SetTexture("_DepthTex", depthTex);
-        compositeMaterial.SetTexture("_MainTex", source); // Pass full-res scene to composite
+        compositeMaterial.SetTexture("_MainTex", source);
         compositeMaterial.SetFloat("_Sharpness", sharpness);
         compositeMaterial.SetFloat("_DebugView", 0);
 
@@ -213,7 +222,6 @@ public class Master : MonoBehaviour
         Graphics.Blit(smokeAlbedoQuarterTex, target, compositeMaterial, 1);
 
         // Composite upscaled smoke over the original full-res scene
-        // Output to destination
         compositeMaterial.SetTexture("_SmokeTex", target); // Now _SmokeTex is full-res upscaled smoke
         Graphics.Blit(source, destination, compositeMaterial, 2);
 
